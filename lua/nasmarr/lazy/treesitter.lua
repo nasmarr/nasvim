@@ -1,54 +1,58 @@
 return {
     {
     "nvim-treesitter/nvim-treesitter",
+    branch = "main",
+    lazy = false,
     build = ":TSUpdate",
     config = function()
-        require("nvim-treesitter").setup({
-            -- A list of parser names, or "all"
-            ensure_installed = {
-                "vimdoc", "javascript", "typescript", "c", "lua", "rust",
-                "jsdoc", "bash",
-		"angular", "c_sharp", "css", "html", "diff",
-            },
+        -- NOTE: the `main` branch no longer accepts ensure_installed/highlight/indent
+        -- in setup(); parsers are installed explicitly and highlighting is started
+        -- per-buffer via a FileType autocmd below.
+        local ts = require("nvim-treesitter")
+        ts.setup({})
 
-            -- Install parsers synchronously (only applied to `ensure_installed`)
-            sync_install = false,
+        local parsers = {
+            "vimdoc", "javascript", "typescript", "c", "lua", "rust",
+            "jsdoc", "bash", "markdown", "markdown_inline",
+            "angular", "c_sharp", "css", "html", "diff", "java",
+        }
 
-            -- Automatically install missing parsers when entering buffer
-            -- Recommendation: set to false if you don"t have `tree-sitter` CLI installed locally
-            auto_install = true,
+        -- Installing parsers on `main` requires the tree-sitter CLI (pacman -S tree-sitter-cli)
+        if vim.fn.executable("tree-sitter") == 1 then
+            ts.install(parsers)
+        else
+            vim.schedule(function()
+                vim.notify("tree-sitter CLI not found; run `sudo pacman -S tree-sitter-cli` to install parsers",
+                    vim.log.levels.WARN, { title = "Treesitter" })
+            end)
+        end
 
-            indent = {
-                enable = true
-            },
+        local max_filesize = 100 * 1024 -- 100 KB
 
-            highlight = {
-                -- `false` will disable the whole extension
-                enable = true,
-                disable = function(lang, buf)
-                    if lang == "html" then
-                        print("disabled")
-                        return true
-                    end
+        vim.api.nvim_create_autocmd("FileType", {
+            group = vim.api.nvim_create_augroup("nasmarr_treesitter", { clear = true }),
+            callback = function(args)
+                local buf = args.buf
+                local lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype)
+                if not lang or lang == "html" then
+                    return
+                end
 
-                    local max_filesize = 100 * 1024 -- 100 KB
-                    local ok, stats = pcall(vim.loop.fs_stat, vim.api.nvim_buf_get_name(buf))
-                    if ok and stats and stats.size > max_filesize then
-                        vim.notify(
-                            "File larger than 100KB treesitter disabled for performance",
-                            vim.log.levels.WARN,
-                            {title = "Treesitter"}
-                        )
-                        return true
-                    end
-                end,
+                local ok, stats = pcall(vim.uv.fs_stat, vim.api.nvim_buf_get_name(buf))
+                if ok and stats and stats.size > max_filesize then
+                    vim.notify(
+                        "File larger than 100KB treesitter disabled for performance",
+                        vim.log.levels.WARN,
+                        {title = "Treesitter"}
+                    )
+                    return
+                end
 
-                -- Setting this to true will run `:h syntax` and tree-sitter at the same time.
-                -- Set this to `true` if you depend on "syntax" being enabled (like for indentation).
-                -- Using this option may slow down your editor, and you may see some duplicate highlights.
-                -- Instead of true it can also be a list of languages
-                additional_vim_regex_highlighting = { "markdown" },
-            },
+                -- Start highlighting (silently skip if no parser is available)
+                if pcall(vim.treesitter.start, buf, lang) then
+                    vim.bo[buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+                end
+            end,
         })
 
         -- Register templ filetype with treesitter
