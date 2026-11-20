@@ -37,6 +37,7 @@ return {
                 "html",
                 "eslint",
                 "ts_ls",
+                "jdtls",
             },
             handlers = {
                 function(server_name) -- default handler (optional)
